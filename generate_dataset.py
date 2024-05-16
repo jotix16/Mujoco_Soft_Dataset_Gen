@@ -71,12 +71,8 @@ from utils.json_utils import MyEncoder, NoIndent
 
 ray.init(ignore_reinit_error=True)
 
-
 np.set_printoptions(linewidth=400)
 os.environ["MUJOCO_GL"] = "egl"
-
-
-
 
 
 def generate_model(
@@ -123,12 +119,12 @@ def generate_model(
 
     # We can also wrap the deformable flxcomp in a body
     my_deformable_obj = """
-        <flexcomp type="gmsh" file="{gmsh_path}" pos="{p[0]} {p[1]} {p[2]}" rgba="1 .0 .0 1" name="softbody" mass="10.4">
+        <flexcomp type="gmsh" file="{gmsh_path}" pos="{p[0]} {p[1]} {p[2]}" rgba="1 .0 .0 1" name="softbody" mass="10.04" radius="0">
             <contact condim="3" solref="0.01 1" solimp=".95 .99 .0001" selfcollide="none"/>
             <edge damping="1.0"/>
             <plugin plugin="mujoco.elasticity.solid">
                 <config key="poisson" value="0.2"/>
-                <config key="young" value="2e3"/>
+                <config key="young" value="5e2"/>
             </plugin>
         </flexcomp>
         """
@@ -176,7 +172,6 @@ def fibonacci_hemisphere(samples, sphere_radius, xyz=[0, 0, 0.1], whole_sphere=T
     return points + np.asarray(xyz)
 
 
-
 if __name__ == "__main__":
     import argparse
 
@@ -193,7 +188,7 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
     gmsh_path = args.gmsh_path
-    num_cams = args.num_cams  # (args.num_cams // 2)*2
+    num_cams = args.num_cams // 2 if args.transparent_floor else args.num_cams
     w, h = args.width, args.height
     xyz = (0, 0, 2.2)
 
@@ -209,7 +204,7 @@ if __name__ == "__main__":
         (exp_path / "points" / f"{i}").mkdir(parents=True, exist_ok=True)
 
     # Set up the model
-    camera_positions = fibonacci_hemisphere(samples=num_cams, sphere_radius=15.0, xyz=(0, 0, 0), whole_sphere=False)
+    camera_positions = fibonacci_hemisphere(samples=num_cams, sphere_radius=15.0, xyz=(0, 0, -0.1), whole_sphere=args.transparent_floor)
     gen_mode_func = lambda: generate_model(
         gmsh_path=gmsh_path,
         xyz=xyz,
@@ -222,10 +217,10 @@ if __name__ == "__main__":
     model, data, renderer = gen_mode_func()
 
     # Cameras
-    train_cams = [f"fixed_cam{cam_id}" for cam_id in range(num_cams)]
+    cam_names = [f"fixed_cam{cam_id}" for cam_id in range(num_cams)]
     cam_param = {
         cam_id: mu.get_camera_params(model, data, renderer, cam_name)
-        for cam_id, cam_name in enumerate(train_cams)
+        for cam_id, cam_name in enumerate(cam_names)
     }
 
     # -----------------------------
@@ -246,7 +241,7 @@ if __name__ == "__main__":
     # -----------------------------
     mu.set_state(model, data, simulated_state_list[0], state_ix)
     init_pcd = np.concatenate(
-        [mu.get_pointcloud_from_camera_depth(m=model, d=data, r=renderer, cam_name=cn) for cn in train_cams],
+        [mu.get_pointcloud_from_camera_depth(m=model, d=data, r=renderer, cam_name=cn) for cn in cam_names],
         axis=0,
     )
     np.savez(exp_path / "init_pt_cld.npz", data=init_pcd)  # save every second point
@@ -268,7 +263,7 @@ if __name__ == "__main__":
     timestep = model.opt.timestep / subsample
 
     print("[RENDERING]:  Rendering and saving images/depth/seg/points")
-    n_splits = 10
+    n_splits = 80 // subsample
     ixs             = np.array_split(range(len(simulated_state_list)), n_splits)
     state_splits    = np.array_split(simulated_state_list, n_splits)
     camera_ids = {
@@ -283,7 +278,7 @@ if __name__ == "__main__":
         ray.get(
             [
                 mu.render_save.remote(
-                    gen_mode_func, state_ix, i, s, camera_ids, train_cams, exp_path, bar
+                    gen_mode_func, state_ix, i, s, camera_ids, cam_names, exp_path, bar
                 )
                 for i, s in zip(ixs, state_splits)
             ]
@@ -294,7 +289,7 @@ if __name__ == "__main__":
     bar.close.remote()
 
     cam_param = {
-        cam_id: mu.get_camera_params(model, data, renderer, train_cams[cam_id])
+        cam_id: mu.get_camera_params(model, data, renderer, cam_names[cam_id])
         for cam_id in range(num_cams)
     }
 

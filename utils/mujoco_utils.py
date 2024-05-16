@@ -14,6 +14,11 @@ from tqdm import tqdm
 os.environ["MUJOCO_GL"] = "egl"
 
 
+def set_state(m, d, state, state_ix):
+    mujoco.mj_setState(m, d, state, state_ix)
+    mujoco.mj_forward(m, d)
+
+
 def simulate(m, d, record_time=5.):
 
     paused = True
@@ -30,7 +35,7 @@ def simulate(m, d, record_time=5.):
     M = mujoco.mj_stateSize(m, state_ix)
     i=0
     subsample = 1
-    progress_bar = tqdm(range(0, int(record_time/m.opt.timestep / subsample)), desc="Training progress")
+    progress_bar = tqdm(range(0, int(record_time/m.opt.timestep / subsample)), desc="Simulation progress")
 
     time_until_next_step = 0.
     with mujoco.viewer.launch_passive(m, d, key_callback=key_callback) as viewer:
@@ -87,11 +92,6 @@ def simulate(m, d, record_time=5.):
     return state_ix, simulated_state_list, timestamps
 
 
-def set_state(m, d, state, state_ix):
-    mujoco.mj_setState(m, d, state, state_ix)
-    mujoco.mj_forward(m, d)
-
-
 def simulate_offline(m, d, record_time=3.):
     state_ix = mujoco.mjtState.mjSTATE_QPOS + mujoco.mjtState.mjSTATE_USER # part of the state that we want to save
     M = mujoco.mj_stateSize(m, state_ix)
@@ -100,7 +100,7 @@ def simulate_offline(m, d, record_time=3.):
     timestamps = []
     i=0
     subsample = 1
-    progress_bar = tqdm(range(0, int(record_time/m.opt.timestep/subsample)), desc="Training progress")
+    progress_bar = tqdm(range(0, int(record_time/m.opt.timestep/subsample)), desc="Simulation progress")
 
     start_time = time.time()
     while True and d.time < record_time:
